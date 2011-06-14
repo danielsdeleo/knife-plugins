@@ -13,10 +13,18 @@ module OpscodeDeploy
     end
 
     def env_dbag_file
-      chef_repo("data_bags/environments/#{environment}.json")
+      repo_file("data_bags/environments/#{environment}.json")
+    end
+
+    def assert_order_preserving_hashes
+      if RUBY_VERSION !~ /^1\.9/
+        ui.error "Ruby 1.9 required so you don't reorder hashes (found: Ruby #{RUBY_VERSION})"
+        exit 1
+      end
     end
 
     def run
+      assert_order_preserving_hashes
       get_env_from_args!
       @project, @rev = name_args[0], name_args[1]
       if @project.nil? || @rev.nil?
@@ -40,15 +48,15 @@ module OpscodeDeploy
       File.open(env_dbag_file, "w"){|f| f.puts(Yajl::Encoder.encode(env_dbag_data, :pretty => true))}
 
       git_commit_pid = fork do
-        Dir.chdir(chef_repo(""))
-        exec "git commit -e -m 'Bump #{environment} #@project_key from #{env_dbag_data[@project_key]} to #@rev' data_bags/environments/#{environment}.json"
+        Dir.chdir(repo_file(""))
+        exec "git commit -v -e -m 'Bump #{environment} #@project_key from #{env_dbag_data[@project_key]} to #@rev' data_bags/environments/#{environment}.json"
       end
       pid, status = Process.waitpid2(git_commit_pid)
 
       if status.success?
         git_push_pid = fork do
-          Dir.chdir(chef_repo(""))
-          puts "git push"
+          Dir.chdir(repo_file(""))
+          ui.msg "Hey, don't forget to git push"
         end
       else
         ui.error "Commit failed, exiting"

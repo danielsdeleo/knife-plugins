@@ -23,9 +23,15 @@ module OpscodeDeploy
     end
 
     # Takes a relative path and expands it relative to your chef-repo
-    def chef_repo(relative_path)
-      repo_path = File.expand_path('chef-repo', Dir.pwd)
-      File.expand_path(relative_path, repo_path)
+    # Looks for data_bags in cwd, if found then assume we are in the
+    # chef-repo, otherwise look for 'chef-repo'
+    def repo_file(relative_path)
+      if File.directory?("data_bags")
+        File.expand_path(relative_path, Dir.pwd)
+      else
+        repo_path = File.expand_path('chef-repo', Dir.pwd)
+        File.expand_path(relative_path, repo_path)
+      end
     end
   end
 end

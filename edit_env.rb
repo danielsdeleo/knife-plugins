@@ -13,7 +13,9 @@ module OpscodeDeploy
 
     def run
       get_env_from_args!
-      exec "#{ENV['EDITOR']} chef-repo/data_bags/environments/#{environment}.json"
+      data_bag_file = repo_file("data_bags/environments/#{environment}.json")
+      ui.msg(data_bag_file)
+      exec "#{ENV['EDITOR']} #{data_bag_file}"
     end
   end
 
