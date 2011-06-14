@@ -14,16 +14,16 @@ be useful in your environment.
 
 I have several Chef configurations layed out like this:
 
-TOPLEVEL
- | - ENVIRONMENT
-      | - .chef/knife.rb
-      ` - chef-repo
-            | - cookbooks/
-            | - data_bags
-            |    ` - environments
-            |         | - prod.json
-            |         ` - preprod.json
-            ` - roles/
+    TOPLEVEL
+     | - ENVIRONMENT
+          | - .chef/knife.rb
+          ` - chef-repo
+                | - cookbooks/
+                | - data_bags
+                |    ` - environments
+                |         | - prod.json
+                |         ` - preprod.json
+                ` - roles/
 
 The chef-repo contents are shared between all environments with
 symlinks.
