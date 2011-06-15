@@ -1,4 +1,4 @@
-require File.expand_path('../opscode_deploy', __FILE__)
+require File.expand_path('../lib/opscode_deploy', __FILE__)
 
 module OpscodeDeploy
   class PushEnv < Chef::Knife
