@@ -13,6 +13,9 @@ module OpscodeDeploy
       require 'chef/search/query'
       require 'chef/cookbook_version'
       require 'chef/checksum_cache'
+      require 'chef/knife/ssh'
+      require 'net/ssh'
+      require 'net/ssh/multi'
       require 'set'
       require 'pp'
     end
@@ -30,7 +33,7 @@ module OpscodeDeploy
       # ssh options
       knife_ssh = Chef::Knife::Ssh.new
       knife_ssh.config[:manual] = true
-      knife_ssh.name_args = nodes.map(&:fqdn) + "tmux"
+      knife_ssh.name_args = [nodes.map(&:fqdn).join(" "), "tmux"]
       knife_ssh.run
       exit 0
     end
