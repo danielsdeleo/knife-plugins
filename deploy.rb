@@ -35,14 +35,38 @@ module OpscodeDeploy
       exit 0
     end
 
+    def git_branch
+      @git_branch ||= deploy_config[:branch]
+      required_config(":branch", @git_branch)
+    end
+    
+    def git_remote
+      @git_remote ||= deploy_config[:remote]
+      required_config(":remote", @git_remote)
+    end
+    
+    def deploy_config
+      @deploy_config ||= (Chef::Config[:deploy][environment] rescue nil)
+      if @deploy_config.nil? || !@deploy_config.is_a?(Hash)
+        ui.error "missing deploy({#{environment} => {...}}) section in knife.rb"
+        exit 1
+      end
+      @deploy_config
+    end
+
+    def required_config(label, value)
+      if value.nil?
+        ui.error "missing key deploy({#{environment} => {#{label} => ???}}) in knife.rb"
+        exit 1
+      end
+      value
+    end
+    
     def assert_git_rev_matches_remote
-      deploy_config = Chef::Config[:deploy][environment]
-      remote = deploy_config[:remote]
-      branch = deploy_config[:branch]
       local_sha = `git rev-parse HEAD`.chomp
-      remote_sha = `git ls-remote #{remote} #{branch}`[/^[0-9a-f]+/]
+      remote_sha = `git ls-remote #{git_remote} #{git_branch}`[/^[0-9a-f]+/]
       if local_sha != remote_sha
-        ui.error "your git repo is out of sync #{remote}/#{branch}"
+        ui.error "your git repo is out of sync #{git_remote}/#{git_branch}"
         ui.msg "#{local_sha} (local)"
         ui.msg "#{remote_sha} (remote)"
         exit 1
