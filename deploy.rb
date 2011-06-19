@@ -6,8 +6,49 @@ module OpscodeDeploy
 
     category "OPSCODE DEPLOYMENT"
 
-    banner "knife deploy [ROLE-ISH|QUERY]"
-    
+    banner "knife deploy [ROLE-ISH|QUERY] [COMMAND]"
+
+    option :concurrency,
+    :short => "-C NUM",
+    :long => "--concurrency NUM",
+    :description => "The number of concurrent connections",
+    :default => nil,
+    :proc => lambda { |o| o.to_i }
+
+    option :attribute,
+    :short => "-a ATTR",
+    :long => "--attribute ATTR",
+    :description => "The attribute to use for opening the connection - default is fqdn",
+    :default => "fqdn"
+
+    option :ssh_user,
+    :short => "-x USERNAME",
+    :long => "--ssh-user USERNAME",
+    :description => "The ssh username"
+
+    option :ssh_password,
+    :short => "-P PASSWORD",
+    :long => "--ssh-password PASSWORD",
+    :description => "The ssh password"
+
+    option :ssh_port,
+    :short => "-p PORT",
+    :long => "--ssh-port PORT",
+    :description => "The ssh port",
+    :default => "22",
+    :proc => Proc.new { |key| Chef::Config[:knife][:ssh_port] = key }
+
+    option :identity_file,
+    :short => "-i IDENTITY_FILE",
+    :long => "--identity-file IDENTITY_FILE",
+    :description => "The SSH identity file used for authentication"
+
+    option :no_host_key_verify,
+    :long => "--no-host-key-verify",
+    :description => "Disable host key verification",
+    :boolean => true,
+    :default => false
+
     deps do
       require 'yajl'
       require 'chef/search/query'
@@ -22,18 +63,24 @@ module OpscodeDeploy
 
     def run
       get_env_from_args!
+      # in order to deploy, your local git repo must match the
+      # configured remote
       assert_git_rev_matches_remote
-      project_spec = name_args[0]
-      query = query_for_project_spec
-      nodes = find_nodes(query)
-      remote_cookbooks = cookbooks_for_nodes(nodes)
-      local_cookbooks = cookbooks_from_repo(remote_cookbooks[:names])
-      compare_cookbooks(local_cookbooks, remote_cookbooks)
-      # FIXME: eventually, we will want to support many of the knife
-      # ssh options
+
+      nodes = find_nodes(name_args[0])
+
+      # The union of run lists of the nodes is used to determine a set
+      # of cookbooks.  We verify that the checksums for these
+      # cookbooks on the server match what is on disk locally
+      assert_server_vs_local_cookbooks_match(nodes)
+
+      # use knife ssh to launch sessions
       knife_ssh = Chef::Knife::Ssh.new
+      knife_ssh.config = config
       knife_ssh.config[:manual] = true
-      knife_ssh.name_args = [nodes.map(&:fqdn).join(" "), "tmux"]
+      cmd = name_args[1] || deploy_config[:default_command] || "tmux"
+      servers = nodes.map { |n| n[config[:attribute]] }.join(" ")
+      knife_ssh.name_args = [servers, cmd]
       knife_ssh.run
       exit 0
     end
@@ -76,7 +123,8 @@ module OpscodeDeploy
       end
     end
 
-    def find_nodes(query)
+    def find_nodes(project_spec)
+      query = query_for_project_spec
       searcher = Chef::Search::Query.new
       rows, _start, _total = searcher.search(:node, query)
       if rows.empty?
@@ -115,6 +163,12 @@ module OpscodeDeploy
         end
         choice
       end
+    end
+
+    def assert_server_vs_local_cookbooks_match(nodes)
+      remote_cookbooks = cookbooks_for_nodes(nodes)
+      local_cookbooks = cookbooks_from_repo(remote_cookbooks[:names])
+      compare_cookbooks(local_cookbooks, remote_cookbooks)
     end
 
     def cookbooks_for_nodes(nodes)
