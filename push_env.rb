@@ -19,7 +19,8 @@ module OpscodeDeploy
       get_env_from_args!
 
       dbff = K::DataBagFromFile.new
-      dbff.name_args = %W{environments chef-repo/data_bags/environments/#{environment}.json}
+      json_file = repo_file("data_bags/environments/#{environment}.json")
+      dbff.name_args = %W{environments #{json_file}}
       dbff.run
 
     end
