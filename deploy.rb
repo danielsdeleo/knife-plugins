@@ -113,13 +113,15 @@ module OpscodeDeploy
     end
 
     def assert_git_rev_matches_remote
-      local_sha = `git rev-parse HEAD`.chomp
-      remote_sha = `git ls-remote #{git_remote} #{git_branch}`[/^[0-9a-f]+/]
-      if local_sha != remote_sha
-        ui.error "your git repo is out of sync #{git_remote}/#{git_branch}"
-        ui.msg "#{local_sha} (local)"
-        ui.msg "#{remote_sha} (remote)"
-        exit 1
+      Dir.chdir(repo_file('')) do
+        local_sha = `git rev-parse HEAD`.chomp
+        remote_sha = `git ls-remote #{git_remote} #{git_branch}`[/^[0-9a-f]+/]
+        if local_sha != remote_sha
+          ui.error "your git repo is out of sync #{git_remote}/#{git_branch}"
+          ui.msg "#{local_sha} (local)"
+          ui.msg "#{remote_sha} (remote)"
+          exit 1
+        end
       end
     end
 
