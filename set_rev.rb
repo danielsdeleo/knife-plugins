@@ -40,16 +40,17 @@ module OpscodeDeploy
         ui.error "No project matches the name #@project"
       else
         ui.msg "Multiple projects match #@project, pick one:"
-        ui.highline.choose(project_keys)
+        ui.highline.choose(*project_keys)
       end
       ui.msg "#@project_key #{env_dbag_data[@project_key]} => #@rev"
 
+      old_rev = env_dbag_data[@project_key]
       env_dbag_data[@project_key] = @rev
       File.open(env_dbag_file, "w"){|f| f.puts(Yajl::Encoder.encode(env_dbag_data, :pretty => true))}
 
       git_commit_pid = fork do
         Dir.chdir(repo_file(""))
-        exec "git commit -v -e -m 'Bump #{environment} #@project_key from #{env_dbag_data[@project_key]} to #@rev' data_bags/environments/#{environment}.json"
+        exec "git commit -v -e -m 'Bump #{environment} #@project_key from #{old_rev} to #@rev' data_bags/environments/#{environment}.json"
       end
       pid, status = Process.waitpid2(git_commit_pid)
 
