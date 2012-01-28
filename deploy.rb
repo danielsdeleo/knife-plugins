@@ -49,6 +49,11 @@ module OpscodeDeploy
     :boolean => true,
     :default => false
 
+    option :opscode_environment,
+      :short => "-E",
+      :long => "--opscode-environment ENVIRONMENT",
+      :description => "Opscode environment"
+
     deps do
       require 'yajl'
       require 'chef/search/query'
@@ -96,7 +101,10 @@ module OpscodeDeploy
     end
 
     def deploy_config
-      @deploy_config ||= (Chef::Config[:deploy][environment] rescue nil)
+      @deploy_config ||= (Chef::Config[:deploy][environment] rescue Mash.new)
+      @deploy_config[:default_command] ||= "macterm"
+      @deploy_config[:branch] ||= `git branch`.each_line.grep(/^\*/).first[1..-1].strip
+      @deploy_config[:remote] ||= `git config --get branch.#{@deploy_config[:branch]}.remote`.strip
       if @deploy_config.nil? || !@deploy_config.is_a?(Hash)
         ui.error "missing deploy({#{environment} => {...}}) section in knife.rb"
         exit 1

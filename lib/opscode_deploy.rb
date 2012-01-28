@@ -1,24 +1,31 @@
 module OpscodeDeploy
   module EnvironmentNames
-    OC_ENVS = {'rs-prod' => true, 'rs-preprod' => true}
-
     attr_reader :environment
 
     def get_env_from_args!
-      unless @environment = guess_env_name
+      unless @environment = config[:opscode_environment] || guess_env_name
         ui.error "Environment to edit could not be determined by magic and you did not provide one"
         exit 1
       end
     end
 
     def guess_env_name
-      pwd = File.basename(Dir.pwd)
-      if OC_ENVS.key?(pwd)
-        pwd
-      elsif OC_ENVS.key?(@name_args[0])
-        @name_args[0]
+      env_dir = File.basename(repo_path)
+      if File.exist?(repo_file("data_bags/environments/#{env_dir}.json"))
+        env_dir
       else
         nil
+      end
+    end
+
+    def repo_path
+      cookbook_parent = File.expand_path("..", Chef::Config.cookbook_path.first)
+      if File.directory?(File.join(cookbook_parent, "data_bags"))
+        cookbook_parent
+      elsif File.directory?(File.join(Dir.pwd, "data_bags"))
+        Dir.pwd
+      else
+        File.join(Dir.pwd, 'chef-repo')
       end
     end
 
@@ -26,12 +33,7 @@ module OpscodeDeploy
     # Looks for data_bags in cwd, if found then assume we are in the
     # chef-repo, otherwise look for 'chef-repo'
     def repo_file(relative_path)
-      if File.directory?("data_bags")
-        File.expand_path(relative_path, Dir.pwd)
-      else
-        repo_path = File.expand_path('chef-repo', Dir.pwd)
-        File.expand_path(relative_path, repo_path)
-      end
+      File.expand_path(relative_path, repo_path)
     end
   end
 end
