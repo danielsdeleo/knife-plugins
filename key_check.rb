@@ -30,7 +30,8 @@ module Kallistec
         ui.msg "Match."
         ui.msg "#{@private_key_file} is a valid key for client #{@client_name}"
       else
-        ui.msg "Mismatch:"
+        ui.error "Mismatch:"
+        ui.error "#{@private_key_file} is not a valid key for client #{@client_name}"
         ui.msg "Public key extracted from private key:\n#{@public_key_from_local}"
         ui.msg "Public key from server:\n#{@public_key_from_server}"
         exit 1
