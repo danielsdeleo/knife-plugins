@@ -27,6 +27,7 @@ module Kallistec
 
       @public_key_from_server = fetch_public_from_server
       if @public_key_from_local.to_s == @public_key_from_server.to_s
+        ui.msg "Match."
         ui.msg "#{@private_key_file} is a valid key for client #{@client_name}"
       else
         ui.msg "Mismatch:"
