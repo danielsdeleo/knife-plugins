@@ -1,6 +1,6 @@
 module OpscodeDeploy
   module EnvironmentNames
-    OC_ENVS = {'rs-prod' => true, 'rs-preprod' => true}
+    OC_ENVS = {'prod' => 'rs-prod', 'preprod' => 'rs-preprod'}
 
     attr_reader :environment
 
@@ -14,7 +14,7 @@ module OpscodeDeploy
     def guess_env_name
       pwd = File.basename(Dir.pwd)
       if OC_ENVS.key?(pwd)
-        pwd
+        OC_ENVS[pwd]
       elsif OC_ENVS.key?(@name_args[0])
         @name_args[0]
       else
