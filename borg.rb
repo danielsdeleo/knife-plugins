@@ -1,11 +1,5 @@
 module Kallistec
 
-  class BorgConfig
-
-    # config files
-    # rel_path => content
-  end
-
   class SSHSession
     class SessionWrapper
 
@@ -13,13 +7,26 @@ module Kallistec
       end
 
       attr_reader :session
+      attr_reader :ssh_config
+      attr_reader :ui
 
-      def initialize(session)
+      def initialize(ui, session, ssh_config)
+        @ui = ui
         @session = session
+        @ssh_config = ssh_config
       end
 
       def log
         Chef::Log
+      end
+
+      def scp(io_or_string, path)
+        io = if io_or_string.respond_to?(:read_nonblock)
+               io_or_string
+             else
+               StringIO.new(io_or_string)
+             end
+        session.scp.upload!(io, path)
       end
 
       def run(cmd, desc=nil)
@@ -30,7 +37,8 @@ module Kallistec
       end
 
       def pty_run(command)
-        ssh.open_channel do |channel|
+        exit_status = nil
+        session.open_channel do |channel|
           channel.request_pty
           channel.exec(command) do |ch, success|
             raise ExecuteFailure, "Cannot execute (on #{remote_host}) command `#{command}'" unless success
@@ -50,24 +58,65 @@ module Kallistec
       end
 
       def sudo(cmd)
-        "sudo -p 'SUDO PASSWORD FOR #{remote_host_ip}:' #{cmd}"
+        "sudo -p 'SUDO PASSWORD FOR #{remote_host}:' #{cmd}"
       end
 
       def get_password
-        @password ||= ui.ask("SUDO PASSWORD FOR #{remote_host_ip}") { |q| q.echo = false }
+        @password ||= ui.ask("SUDO PASSWORD FOR #{remote_host}") { |q| q.echo = false }
       end
 
       def remote_host
-        raise "TODO"
+        ssh_config.host
       end
 
+    end
+
+    class ConnectionOptions
+      attr_accessor :host
+      attr_accessor :port
+
+      attr_accessor :user
+      attr_accessor :password
+      attr_accessor :identity_file
+
+      attr_accessor :gateway
+      attr_accessor :paranoid
+
+      def to_net_ssh_config
+        [
+         host,
+         user,
+         {:password => password, :paranoid => paranoid}
+        ]
+      end
+    end
+
+    attr_reader :connection_options
+    attr_reader :ui
+
+    def log
+      Chef::Log
+    end
+
+    def initialize(ui, connection_opts=nil, &config_block)
+      @ui = ui
+      @connection_options = connection_opts || ConnectionOptions.new
+      configure(&config_block) if block_given?
+    end
+
+    def configure
+      yield connection_options
     end
 
     def connect
       log.debug "Connecting to cloud_server: #{ssh_options}"
       Net::SSH.start(*ssh_options) do |ssh|
-        yield SessionWrapper.new(ssh)
+        yield SessionWrapper.new(ui, ssh, connection_options)
       end
+    end
+
+    def ssh_options
+      connection_options.to_net_ssh_config
     end
   end
 
@@ -115,7 +164,7 @@ module Kallistec
       bootstrap
     end
 
-    def remote_host_ip
+    def remote_host
       @name_args[0]
     end
 
@@ -124,11 +173,6 @@ module Kallistec
     end
 
     def ssh_options
-      [
-       remote_host_ip,
-       'ddeleo',
-       {:password => "foobar", :paranoid => false}
-      ]
     end
 
     def chef_api
@@ -149,7 +193,7 @@ module Kallistec
     end
 
     def client_key
-      StringIO.new(api_client.private_key)
+      api_client.private_key
     end
 
     def tempdir
@@ -161,50 +205,36 @@ module Kallistec
     end
 
     def bootstrap
+      ssh = SSHSession.new(ui) do |config|
+        config.user = "ddeleo"
+        config.password = "foobar"
+        config.host = remote_host
+      end
+
       log.debug "Connecting to cloud_server: #{ssh_options}"
-      Net::SSH.start(*ssh_options) do |ssh|
+
+      ssh.connect do |session|
         log.debug "Making config dir #{tempdir}"
-        ssh.exec!("mkdir -m 0700 #{@tempdir}")
-
-
+        session.run("mkdir -m 0700 #{@tempdir}")
 
         log.debug "uploading client key"
-        ssh.scp.upload! client_key, temp_path("client.pem")
+        session.scp(client_key, temp_path("client.pem"))
+
         log.debug "uploading bootstrap script:"
-        log.debug bootstrap_script.string
-        ssh.scp.upload! bootstrap_script, temp_path("bootstrap.sh")
+        log.debug bootstrap_script
+        session.scp(bootstrap_script, temp_path("bootstrap.sh"))
 
         log.debug "executing bootstrap..."
-        ssh.open_channel do |channel|
-          channel.request_pty
-          channel.exec("sudo -p 'SUDO PASSWORD FOR #{remote_host_ip}:' bash #{temp_path("bootstrap.sh")}") do |ch, success|
-            raise ArgumentError, "Cannot execute #{command}" unless success
-            ch.on_data do |ichannel, data|
-              puts("READ: #{data}")
-              if data =~ /^SUDO PASSWORD FOR/
-                ichannel.send_data("#{get_password}\n")
-              end
-            end
-            ch.on_request "exit-status" do |ichannel, data|
-              exit_status = data.read_long
-            end
-          end
-        end
-
+        session.pty_run(session.sudo("bash #{temp_path("bootstrap.sh")}"))
       end
     end
-
-    def get_password
-      @password ||= ui.ask("SUDO PASSWORD FOR #{remote_host_ip}") { |q| q.echo = false }
-    end
-
 
     def client_rb
       "foo"
     end
 
     def bootstrap_script
-      StringIO.new(<<-END)
+      <<-END
 set -x
 ls -la #{tempdir}
 mkdir -m 0700 /etc/chef
@@ -216,16 +246,6 @@ chmod 0600 /etc/chef/client.pem
 bash <(wget http://opscode.com/chef/install.sh --no-check-certificate -O -) -v 10.16.4
 END
     end
-
-    def bootstrap_context
-      Chef::Knife::Core::BootstrapContext.new(bootstrap_config, run_list, chef_config)
-    end
-
-    def node
-      @node ||= Chef::Node.new.tap {|n| n.name(client.name)}
-    end
-
-
 
   end
 end
