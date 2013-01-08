@@ -120,6 +120,112 @@ module Kallistec
     end
   end
 
+  class ConfigInstaller
+
+    class ConfigFile
+      attr_reader :description
+      attr_reader :rel_path
+
+      attr_accessor :content
+      attr_accessor :mode
+
+      def initialize(description, rel_path)
+        @description = description
+        @rel_path = rel_path
+        @content = ""
+        @mode = "0600"
+      end
+    end
+
+    attr_reader :files_to_install
+
+    def initialize
+      @files_to_install = []
+    end
+
+    def log
+      Chef::Log
+    end
+
+    def install_file(description, rel_path)
+      file = ConfigFile.new(description, rel_path)
+      yield file if block_given?
+      @files_to_install << file
+    end
+
+    def install_config(ssh_session)
+      stage_files(ssh_session)
+      install_staged_files(ssh_session)
+    end
+
+    def stage_files(ssh_session)
+      log.debug "Making config staging dir #{tempdir}"
+      ssh_session.run("mkdir -m 0700 #{@tempdir}")
+
+      files_to_install.each do |file|
+        staging_path = temp_path(file.rel_path)
+        log.debug "Staging #{file.description} to #{staging_path}"
+        ssh_session.scp(file.content, staging_path)
+      end
+    end
+
+    def install_staged_files(ssh_session)
+      log.debug("Creating Chef config directory /etc/chef")
+      # TODO: don't hardcode sudo
+      ssh_session.pty_run(ssh_session.sudo(<<-SCRIPT))
+bash -c '
+  mkdir -p -m 0700 /etc/chef
+  chown root:root /etc/chef
+  chmod 0755 /etc/chef
+'
+SCRIPT
+      files_to_install.each do |file|
+        # TODO: support paths outside /etc/chef?
+        final_path = File.join("/etc/chef", file.rel_path)
+        log.debug("moving staged #{file.description} to #{final_path}")
+
+        # TODO: don't hardcode sudo
+        ssh_session.pty_run(ssh_session.sudo(<<-SCRIPT))
+bash -c '
+  mv #{temp_path(file.rel_path)} #{final_path}
+  chown root:root #{final_path}
+  chmod #{file.mode} #{final_path}
+'
+SCRIPT
+      end
+    end
+
+    def tempdir
+      @tempdir ||= "/tmp/chef-bootstrap-#{rand(2 << 128).to_s(16)}"
+    end
+
+    def temp_path(rel_path)
+      File.join(tempdir, rel_path)
+    end
+
+  end
+
+  class ChefInstaller
+
+    def setup_files(config_installer)
+      config_installer.install_file("bootstrap script", "bootstrap.sh") do |f|
+        f.content = install_script
+        f.mode = "0755"
+      end
+    end
+
+    def install_script
+      <<-SCRIPT
+set -x
+bash <(wget http://opscode.com/chef/install.sh --no-check-certificate -O -) -v 10.16.4
+SCRIPT
+    end
+
+    def install(ssh_session)
+      ssh_session.pty_run(ssh_session.sudo("bash -x /etc/chef/bootstrap.sh"))
+    end
+  end
+
   class Borg < Chef::Knife
 
     deps do
@@ -196,15 +302,18 @@ module Kallistec
       api_client.private_key
     end
 
-    def tempdir
-      @tempdir ||= "/tmp/chef-bootstrap-#{rand(2 << 128).to_s(16)}"
-    end
-
-    def temp_path(rel_path)
-      File.join(tempdir, rel_path)
-    end
-
     def bootstrap
+      config_installer = ConfigInstaller.new
+
+      config_installer.install_file("client key", "client.pem") do |f|
+        f.content = client_key
+        f.mode = "0600"
+      end
+
+
+      chef_installer = ChefInstaller.new
+      chef_installer.setup_files(config_installer)
+
       ssh = SSHSession.new(ui) do |config|
         config.user = "ddeleo"
         config.password = "foobar"
@@ -214,37 +323,11 @@ module Kallistec
       log.debug "Connecting to cloud_server: #{ssh_options}"
 
       ssh.connect do |session|
-        log.debug "Making config dir #{tempdir}"
-        session.run("mkdir -m 0700 #{@tempdir}")
-
-        log.debug "uploading client key"
-        session.scp(client_key, temp_path("client.pem"))
-
-        log.debug "uploading bootstrap script:"
-        log.debug bootstrap_script
-        session.scp(bootstrap_script, temp_path("bootstrap.sh"))
-
-        log.debug "executing bootstrap..."
-        session.pty_run(session.sudo("bash #{temp_path("bootstrap.sh")}"))
+        log.debug "Installing config files"
+        config_installer.install_config(session)
+        log.debug "Executing installer..."
+        chef_installer.install(session)
       end
-    end
-
-    def client_rb
-      "foo"
-    end
-
-    def bootstrap_script
-      <<-END
-set -x
-ls -la #{tempdir}
-mkdir -m 0700 /etc/chef
-chown root:root /etc/chef
-chmod 0755 /etc/chef
-mv #{temp_path("client.pem")} /etc/chef/client.pem
-chown root:root /etc/chef/client.pem
-chmod 0600 /etc/chef/client.pem
-bash <(wget http://opscode.com/chef/install.sh --no-check-certificate -O -) -v 10.16.4
-END
     end
 
   end
